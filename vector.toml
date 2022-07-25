@@ -1,0 +1,120 @@
+[api]
+  enabled = true
+
+[enrichment_tables.event_enrichment_remap]
+type = "file"
+
+[enrichment_tables.event_enrichment_remap.file]
+path = "./event_enrichment_remap.csv"
+encoding = { type = "csv" }
+
+[enrichment_tables.event_enrichment_remap.schema]
+eventName = "string"
+technique = "string"
+
+[sources.local_cloudtrail_logs]
+type = "file"
+data_dir = "./"
+#include = ["./aws.persistence.iam-create-admin-user/event_history.json"]
+include = ["./flaws_cloudtrail_logs/flaws_cloudtrail00.json"]
+read_from = "beginning"
+max_line_bytes = 150000000 # lets get weird 
+
+[transforms.explode]
+type = "remap"
+inputs = ["local_cloudtrail_logs"]
+source = """
+. = parse_json!(.message)
+. = .Records
+"""
+
+[transforms.filter_stratus_logs]
+type = "filter"
+inputs = ["explode"]
+condition = """
+userAgent = to_string(.userAgent) ?? "not_found"
+starts_with(userAgent, "stratus-red-team")
+"""
+
+[transforms.filter_logs_without_stratus]
+type = "filter"
+inputs = ["explode"]
+condition = """
+userAgent = to_string(.userAgent) ?? "not_found"
+!starts_with(userAgent, "stratus-red-team")
+"""
+
+[transforms.reducer]
+type = "reduce"
+inputs = [ "filter_stratus_logs" ]
+group_by = [ ".userAgent" ]
+#expire_after_ms = 3000
+
+[transforms.reducer.merge_strategies]
+eventName = "flat_unique"
+eventID = "flat_unique"
+
+
+[transforms.to_sightings_format]
+type = "remap"
+inputs = ["reducer", "filter_logs_without_stratus"]
+source = """
+
+techniques = []
+sighting = {} 
+sighting.version = "1.0"
+sighting.start_time = .eventTime
+sighting.detection_type = "machine_validated"
+sighting.sighting_type = "direct_technique"
+sighting.software_name = .userAgent
+if (!is_array(.eventID)) {
+    .eventID = [.eventID]
+}
+if (!is_array(.eventName)) {
+    .eventName = [.eventName]
+}
+sighting.id = .eventID[0]
+raw_data = .
+
+for_each(array!(.eventName)) -> |_index, value| {
+    technique = {}
+    technique.technique_id = ""
+    matches = false
+    if (match(to_string!(value), r'Describe|List|Get|Head')) {
+        technique.technique_id = "TA0007"
+        matches = true
+    } else {
+        row, err = get_enrichment_table_record("event_enrichment_remap", { "eventName":  value })
+        if (err == null) {
+            technique.technique_id = row.technique
+            matches = true
+        }
+    }
+    if (matches) {
+        technique.start_time = .eventTime
+        technique.platform = "AWS"
+        techniques = push(techniques, technique)
+    }
+}
+# add the raw cloudtrail log to the first element only to prevent repeats
+if (length(techniques) > 0) {
+    techniques[0].raw_data = raw_data
+}
+
+sighting.techniques = techniques
+. = sighting
+"""
+
+[transforms.filter_logs_no_techniques]
+type = "filter"
+inputs = ["to_sightings_format"]
+condition = """
+length(array!(.techniques)) > 0
+"""
+
+[sinks.to_file]
+type = "file"
+inputs = ["filter_logs_no_techniques"]
+compression = "none"
+encoding.codec = "json"
+path = "sightings.json"
