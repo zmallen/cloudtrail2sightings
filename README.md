@@ -14,7 +14,7 @@ true
 ```
 3. Add newlines to the datafile (1 to end of line plus 1 more empty). This ensures vector knows when to stop processing. `echo "\n" >> ./path/to/datafile.json`
 
-4. This will writeout a directory called `local_cloudtrail_logs` to keep track of where it processed files. If this exists, go ahead and delete it `rm -rf local_cloudtrail_logs`. It will also writeout all processed cloudtrail logs to `sightings.json`, you can delete this too via `rm -rf sightings.json`.
+4. Change the `include` line to the path to your json file or files. This will writeout a directory called `local_cloudtrail_logs` to keep track of where it processed files. If this exists, go ahead and delete it `rm -rf local_cloudtrail_logs`. It will also writeout all processed cloudtrail logs to `sightings.json`, you can delete this too via `rm -rf sightings.json`.
 
 5. Run vector `vector --config vector.toml`. It will start to write data out to `sightings.json`
 
@@ -22,3 +22,21 @@ true
 
 
 ## Processing sightings data, useful queries
+
+* Get all `software_name` (cloudtrail `userAgent`) to find interesting interactions in your environment 
+
+```bash
+jq -r --slurp '.[].software_name' < sightings.json | sort | uniq
+```
+
+* Get all eventNames in your dataset with corresponding `technique_id` (eventNames are stored in the `raw_data` field on the first technique) 
+
+```bash
+jq -r --slurp '.[].techniques[0]|.technique_id, (.raw_data.eventName|join(","))' < sightings.json
+```
+
+* Same query as before, but focus on interesting software (like stratus-red-team)
+
+```bash
+jq -r --slurp '.[]|select(.software_name | startswith("stratus-red-team"))|.techniques[0] | .technique_id,  (.raw_data.eventName|join(","))' < sightings.json
+```

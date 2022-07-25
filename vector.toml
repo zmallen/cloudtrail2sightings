@@ -15,10 +15,9 @@ technique = "string"
 [sources.local_cloudtrail_logs]
 type = "file"
 data_dir = "./"
-#include = ["./aws.persistence.iam-create-admin-user/event_history.json"]
-include = ["./flaws_cloudtrail_logs/flaws_cloudtrail00.json"]
+include = ["./aws.persistence.iam-create-admin-user/event_history.json"]
 read_from = "beginning"
-max_line_bytes = 150000000 # lets get weird 
+max_line_bytes = 150000000 # lets get weird
 
 [transforms.explode]
 type = "remap"
@@ -61,7 +60,7 @@ inputs = ["reducer", "filter_logs_without_stratus"]
 source = """
 
 techniques = []
-sighting = {} 
+sighting = {}
 sighting.version = "1.0"
 sighting.start_time = .eventTime
 sighting.detection_type = "machine_validated"
